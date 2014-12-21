@@ -1,0 +1,110 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+
+use lib 'lib';
+use WWW::DeviantArt::Download;
+
+my $home =$ENV{HOME};
+my $pwd = $ENV{PWD};
+
+
+GetOptions (
+	"d|debug|D+"		=> \my $debug,
+	"h|help"		=> \my $help,
+	"o|output=s"		=> \my $destination,
+	"s|scrape"		=> \my $scrape,
+	"t|title"		=> \my $title,
+	"g|get-url"		=> \my $get_url,
+#	"n|no-mtime"		=> \my $no_mtime,
+	"f|force-download"	=> \my $force_download,
+	"v|version"		=> \my $version,
+	"x|xattr"		=> \my $xattr
+);
+
+if (  (!scalar(@ARGV)) and 
+	(!defined($help))and 
+	(!defined($destination))and
+	(!defined($scrape))and
+	(!defined($title))and
+	(!defined($get_url))and
+	(defined($version))
+    ){
+die "$WWW::DeviantArt::Download::VERSION\n";
+}
+
+
+
+elsif ((!scalar(@ARGV)) or (defined($help)) ) {
+die "
+usage: dA-dl <image_url> [, <image_url>, ...]
+
+options:
+  -d, --debug            print debug output, repeat up to 2x
+  -f, --force-download   overwrite/re-download, even when file exists
+  -h, --help             print this help text and exit
+  -s, --scrape           also scrape HTML (provides 'description' metadata)
+  -v, --version          print program version and exit
+  -x, --xattr		 write image metadata to extended attributes
+";
+}
+
+if($xattr){
+	require File::ExtAttr;
+	require HTTP::Date;
+}
+
+my $wdd = WWW::DeviantArt::Download->new( debug => $debug, force_download => $force_download, process_html => $scrape );
+for my $url (@ARGV){
+	print "Downloading $url ...";
+	my ($error,$meta) = $wdd->download($url);
+	die $error if $error;
+
+	unless($meta->{local_filename} && $meta->{content_length} == -s $meta->{local_filename}){
+		die "Local filename seems truncated!";
+	}
+
+	print " OK (". ($meta->{content_length} / 1000) ." kB) \n";
+
+	if($xattr){
+		print "Writing xattr to file $meta->{local_filename} \n";
+		if($debug && $debug > 1){
+			print " dublincore.title:\t $meta->{title} \n";
+			print " dublincore.contributor: $meta->{author_name} \n";
+			print " dublincore.date:\t ". HTTP::Date::time2iso(HTTP::Date::str2time($meta->{last_modified})) ." \n";
+			print " xdg.referrer.url:\t $url \n";
+			print " dublincore.description: $meta->{description} \n" if $meta->{description};
+		}
+		File::ExtAttr::setfattr($meta->{local_filename}, 'dublincore.title',		$meta->{title}, { namespace => 'user' }) or die $!;
+		File::ExtAttr::setfattr($meta->{local_filename}, 'dublincore.contributor',	$meta->{author_name}, { namespace => 'user' }) or die $!;
+		File::ExtAttr::setfattr($meta->{local_filename}, 'dublincore.date',		HTTP::Date::time2iso(HTTP::Date::str2time($meta->{last_modified})), { namespace => 'user' }) or die $!;
+		File::ExtAttr::setfattr($meta->{local_filename}, 'xdg.referrer.url',		$url, { namespace => 'user' }) or die $!;
+		if($meta->{description}){ File::ExtAttr::setfattr($meta->{local_filename}, 'dublincore.description', $meta->{description}, { namespace => 'user' }) or die $! };
+	}
+}
+
+=pod
+
+=head1 NAME
+
+dA-dl - command-line script to download art from DeviantArt
+
+=head1 SYNOPSIS
+
+	dA-dl <URL>
+
+=head1 DESCRIPTION
+
+For now, please refer to README.md for documentation.
+
+=head1 AUTHOR
+
+isync
+
+=head1 LICENSE
+
+GNU GPL 3.
+
+=cut
